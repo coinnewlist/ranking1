@@ -59,6 +59,16 @@
             text-align: left;
             border-bottom: 1px solid #ddd;
         }
+        tbody tr {
+            transition: background-color 0.3s ease;
+        }
+        .row-updated {
+            animation: rowHighlight 0.9s ease;
+        }
+        @keyframes rowHighlight {
+            0% { background-color: rgba(255, 246, 205, 0.95); }
+            100% { background-color: transparent; }
+        }
         th {
             background-color: #f8f9fa;
             font-size: 16px;
@@ -113,7 +123,7 @@
                 </tr>
             </thead>
             <tbody id="cryptoTableBody">
-                <tr><td colspan="6" class="loading-state">Loading top 100 cryptocurrencies...</td></tr>
+                <tr><td colspan="6" class="loading-state">Loading cryptocurrencies ranked 1–100...</td></tr>
             </tbody>
         </table>
     </div>
@@ -160,75 +170,123 @@
         let renderScheduled = false;
         let trendingRenderScheduled = false;
         
-        // ========== RENDER TABLE (TOP 100) - BATCH UPDATES FOR SMOOTHNESS ==========
+        // ========== RENDER TABLE (RANKS 1-100) - BATCH UPDATES FOR SMOOTHNESS ==========
         function renderTable() {
             if (!tableBody) return;
             if (!currentCryptoData.length) {
-                tableBody.innerHTML = '<tr><td colspan="6" class="loading-state">Loading top 100 cryptocurrencies...</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="6" class="loading-state">Loading cryptocurrencies ranked 1–100...</td></tr>';
                 return;
             }
             
-            // Use document fragment for efficient batch DOM update
-            const fragment = document.createDocumentFragment();
-            // Show rank 1-100 exactly (page=1 from API returns the first 100 coins)
             const limit = Math.min(currentCryptoData.length, 100);
+            const existingRows = Array.from(tableBody.querySelectorAll('tr'));
+            const needsRebuild = existingRows.length !== limit || existingRows.some(row => row.querySelector('td')?.textContent?.includes('Loading cryptocurrencies ranked'));
             
-            for (let i = 0; i < limit; i++) {
-                const crypto = currentCryptoData[i];
-                const rank = i + 1;
-                const name = crypto.name || 'Unknown';
-                const symbol = (crypto.symbol || '').toUpperCase();
-                const imageUrl = crypto.image || 'https://cryptologos.cc/logos/bitcoin-btc-logo.png';
-                const marketCap = crypto.market_cap ?? 0;
-                const price = crypto.current_price ?? 0;
-                const change1h = crypto.price_change_percentage_1h_in_currency ?? 0;
-                const change = crypto.price_change_percentage_24h ?? 0;
-                
-                const change1hClass = change1h >= 0 ? 'green' : 'red';
-                const change1hText = formatChange(change1h);
-                const changeClass = change >= 0 ? 'green' : 'red';
-                const changeText = formatChange(change);
-                
-                const row = document.createElement('tr');
-                
-                // Rank cell
-                const rankCell = document.createElement('td');
-                rankCell.textContent = rank;
-                rankCell.style.fontWeight = '500';
-                
-                // Name cell with logo
-                const nameCell = document.createElement('td');
-                nameCell.innerHTML = `<img src="${imageUrl}" class="crypto-logo" alt="${name}" onerror="this.src='https://cryptologos.cc/logos/bitcoin-btc-logo.png'"> ${name} (${symbol})`;
-                
-                // Market Cap cell
-                const marketCell = document.createElement('td');
-                marketCell.textContent = formatMarketCap(marketCap);
-                
-                // Price cell
-                const priceCell = document.createElement('td');
-                priceCell.textContent = formatPrice(price);
-                
-                // 1h Change cell
-                const change1hCell = document.createElement('td');
-                change1hCell.innerHTML = `<span class="${change1hClass}">${change1hText}</span>`;
-                
-                // Change cell
-                const changeCell = document.createElement('td');
-                changeCell.innerHTML = `<span class="${changeClass}">${changeText}</span>`;
-                
-                row.appendChild(rankCell);
-                row.appendChild(nameCell);
-                row.appendChild(marketCell);
-                row.appendChild(priceCell);
-                row.appendChild(change1hCell);
-                row.appendChild(changeCell);
-                
-                fragment.appendChild(row);
+            if (needsRebuild) {
+                const fragment = document.createDocumentFragment();
+                for (let i = 0; i < limit; i++) {
+                    fragment.appendChild(createRow(currentCryptoData[i], i + 1));
+                }
+                tableBody.replaceChildren(fragment);
+                return;
             }
             
-            // Smooth swap
-            tableBody.innerHTML = '';
-            tableBody.appendChild(fragment);
+            for (let i = 0; i < limit; i++) {
+                updateRow(existingRows[i], currentCryptoData[i], i + 1);
+            }
+        }
+
+        function createRow(crypto, rank) {
+            const row = document.createElement('tr');
+            row.dataset.rank = rank;
+            row.dataset.cryptoId = crypto.id || `rank-${rank}`;
+
+            const rankCell = document.createElement('td');
+            rankCell.textContent = rank;
+            rankCell.style.fontWeight = '500';
+
+            const nameCell = document.createElement('td');
+            const name = crypto.name || 'Unknown';
+            const symbol = (crypto.symbol || '').toUpperCase();
+            const imageUrl = crypto.image || 'https://cryptologos.cc/logos/bitcoin-btc-logo.png';
+            nameCell.innerHTML = `<img src="${imageUrl}" class="crypto-logo" alt="${name}" onerror="this.src='https://cryptologos.cc/logos/bitcoin-btc-logo.png'"> ${name} (${symbol})`;
+
+            const marketCell = document.createElement('td');
+            marketCell.textContent = formatMarketCap(crypto.market_cap ?? 0);
+
+            const priceCell = document.createElement('td');
+            priceCell.textContent = formatPrice(crypto.current_price ?? 0);
+
+            const change1hCell = document.createElement('td');
+            const change1h = crypto.price_change_percentage_1h_in_currency ?? 0;
+            change1hCell.innerHTML = `<span class="${change1h >= 0 ? 'green' : 'red'}">${formatChange(change1h)}</span>`;
+
+            const changeCell = document.createElement('td');
+            const change = crypto.price_change_percentage_24h ?? 0;
+            changeCell.innerHTML = `<span class="${change >= 0 ? 'green' : 'red'}">${formatChange(change)}</span>`;
+
+            row.append(rankCell, nameCell, marketCell, priceCell, change1hCell, changeCell);
+            return row;
+        }
+
+        function updateRow(row, crypto, rank) {
+            const rankCell = row.cells[0];
+            const nameCell = row.cells[1];
+            const marketCell = row.cells[2];
+            const priceCell = row.cells[3];
+            const change1hCell = row.cells[4];
+            const changeCell = row.cells[5];
+
+            const name = crypto.name || 'Unknown';
+            const symbol = (crypto.symbol || '').toUpperCase();
+            const imageUrl = crypto.image || 'https://cryptologos.cc/logos/bitcoin-btc-logo.png';
+            const marketCapText = formatMarketCap(crypto.market_cap ?? 0);
+            const priceText = formatPrice(crypto.current_price ?? 0);
+            const change1h = crypto.price_change_percentage_1h_in_currency ?? 0;
+            const change1hText = formatChange(change1h);
+            const changeText = formatChange(crypto.price_change_percentage_24h ?? 0);
+            const change1hClass = change1h >= 0 ? 'green' : 'red';
+            const changeClass = (crypto.price_change_percentage_24h ?? 0) >= 0 ? 'green' : 'red';
+
+            let updated = false;
+
+            if (rankCell.textContent !== String(rank)) {
+                rankCell.textContent = rank;
+                updated = true;
+            }
+
+            const newNameHtml = `<img src="${imageUrl}" class="crypto-logo" alt="${name}" onerror="this.src='https://cryptologos.cc/logos/bitcoin-btc-logo.png'"> ${name} (${symbol})`;
+            if (nameCell.innerHTML !== newNameHtml) {
+                nameCell.innerHTML = newNameHtml;
+                updated = true;
+            }
+
+            if (marketCell.textContent !== marketCapText) {
+                marketCell.textContent = marketCapText;
+                updated = true;
+            }
+
+            if (priceCell.textContent !== priceText) {
+                priceCell.textContent = priceText;
+                updated = true;
+            }
+
+            const newChange1hHtml = `<span class="${change1hClass}">${change1hText}</span>`;
+            if (change1hCell.innerHTML !== newChange1hHtml) {
+                change1hCell.innerHTML = newChange1hHtml;
+                updated = true;
+            }
+
+            const newChangeHtml = `<span class="${changeClass}">${changeText}</span>`;
+            if (changeCell.innerHTML !== newChangeHtml) {
+                changeCell.innerHTML = newChangeHtml;
+                updated = true;
+            }
+
+            if (updated) {
+                row.classList.add('row-updated');
+                row.addEventListener('animationend', () => row.classList.remove('row-updated'), { once: true });
+            }
         }
         
         // Debounced render for table (avoids multiple rapid updates)
@@ -288,14 +346,14 @@
         let currentMarketFetchId = 0;
         let currentTrendingFetchId = 0;
         
-        // Fetch top 100 cryptocurrencies (first page, per_page=100)
+        // Fetch cryptocurrencies ranked 1-100 (page=1, per_page=100)
         async function fetchTop100Crypto() {
             const fetchId = ++currentMarketFetchId;
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 8000);
                 
-                // Request the first page of 100 coins, sorted by market cap descending
+                // Request the first page (ranks 1-100) of 100 coins, sorted by market cap descending
                 const response = await fetch(
                     'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false&price_change_percentage=1h,24h',
                     { signal: controller.signal }
